@@ -91,20 +91,21 @@ class CustomLogger(logging.Logger):
 # Инициализация логгера
 # ---------------------------------------------
 
-def get_logger(name: str = "app") -> CustomLogger:
+def get_logger(name: str = "app", lvl: int = logging.DEBUG) -> logging.Logger:
     """
     Возвращает готовый кастомный логгер с цветами и хуками.
     Можно безопасно вызывать в любом модуле
 
     :param name: имя логгера
-    :return: экземпляр CustomLogg.er
+    :param lvl: уровень логирования
+    :return: экземпляр CustomLogger
     """
     logging.setLoggerClass(CustomLogger)
     logger = logging.getLogger(name)
 
     # Добавляем хендлер только один раз
     if not logger.handlers:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(lvl)
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(ColorFormatter())
         logger.addHandler(handler)
