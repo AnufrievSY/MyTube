@@ -1,8 +1,9 @@
 import asyncio
 import random
+import logging
 from common.logger import get_logger
 
-log = get_logger("proxy")
+log = get_logger("proxy", lvl=logging.INFO)
 
 BLOCKED = []
 TASKS = []
