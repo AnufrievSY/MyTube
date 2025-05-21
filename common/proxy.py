@@ -1,3 +1,5 @@
+import os
+import socket
 import asyncio
 import random
 import logging
@@ -7,11 +9,29 @@ log = get_logger("proxy", lvl=logging.INFO)
 
 BLOCKED = []
 TASKS = []
+PORT_FILE = os.path.join(os.path.dirname(__file__), 'proxy_port.txt')
+PORT_RANGE = (20000, 60000)
 
+
+def find_free_port() -> int:
+    """
+    Возвращает первый свободный порт из указанного диапазона.
+    """
+    for _ in range(50):
+        port = random.randint(*PORT_RANGE)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError("Не удалось найти свободный порт")
 async def main(host: str, port: int):
     """
     Запускает асинхронный сокет-сервер на заданном хосте и порту.
     """
+    with open(PORT_FILE, 'w') as f:
+        f.write(f'{host}:{port}')
     server = await asyncio.start_server(new_conn, host, port)
     log.info(f"Сервер запущен на {host}:{port}")
     await server.serve_forever()
@@ -122,6 +142,6 @@ if __name__ == "__main__":
         ]
         log.debug(f"Загружено доменов в blacklist: {len(BLOCKED)}")
 
-        asyncio.run(main(host='127.0.0.1', port=8881))
+        asyncio.run(main(host='127.0.0.1', port=find_free_port()))
     except Exception as e:
         log.critical("Ошибка при запуске прокси-сервера", exc_info=e)
