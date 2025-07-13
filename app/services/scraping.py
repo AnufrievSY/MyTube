@@ -4,33 +4,19 @@ import os
 import sys
 import shutil
 from pathlib import Path
+from app.utils import log, paths
+from app.utils.models import ParsingResult
+import uuid
+import requests
 
-from common import ROOT, log
+CUSTOM_FFMPEG_PATH = paths.SERVICE_DATA / 'ffmpeg-7.1.1-essentials_build'/ 'bin' / 'ffmpeg.exe'
 
-# Путь до файла, где хранится порт прокси-сервера
-PROXY_FILE = ROOT / "common" / "proxy_port.txt"
-
-# Папка, в которую сохраняются все медиафайлы
-OUTPUT_DIR = ROOT / "temp"
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-# Если не хочешь прописывать ffmpeg в PATH — можно указать путь напрямую
-CUSTOM_FFMPEG_PATH = ROOT / r'common\ffmpeg-7.1.1-essentials_build\bin\ffmpeg.exe'
-
-
-def sanitize_filename(name: str) -> str:
-    """
-    Преобразует название в безопасный для файловой системы формат.
-    """
-    return "".join(c if c.isalnum() or c in " ._-()" else "_" for c in name)
-
-
-def get_ffmpeg_path() -> str:
+def _get_ffmpeg_path() -> str:
     """
     Определяет путь до ffmpeg. Если он не найден — выбрасывает ошибку.
     """
     if CUSTOM_FFMPEG_PATH and Path(CUSTOM_FFMPEG_PATH).exists():
-        return str(Path(CUSTOM_FFMPEG_PATH))
+        return str(Path(CUSTOM_FFMPEG_PATH).parent)
     path = shutil.which("ffmpeg")
     if not path:
         raise RuntimeError(
@@ -41,47 +27,61 @@ def get_ffmpeg_path() -> str:
     return path
 
 
-def download_youtube_video(url: str, mode: str = "video", verbose: bool = False) -> tuple[str, str, str]:
+def download_youtube_video(url: str, mode: str = "video") -> ParsingResult:
     """
     Скачивает YouTube-видео или аудио через yt-dlp с использованием локального прокси.
 
     :param url: Ссылка на видео
     :param mode: 'video' (mp4) или 'audio' (mp3)
-    :param verbose: Выводить команды и логи yt-dlp
     :return: (title, author, абсолютный путь до скачанного файла)
     """
     assert mode in ("video", "audio")
+    ext = "mp4" if mode == "video" else "mp3"
 
-    ffmpeg_path = get_ffmpeg_path()
+    ffmpeg_dir = _get_ffmpeg_path()
     env = os.environ.copy()
-    if CUSTOM_FFMPEG_PATH:
-        ffmpeg_dir = str(Path(CUSTOM_FFMPEG_PATH).parent)
-        env["PATH"] = ffmpeg_dir + os.pathsep + env["PATH"]
+    env["PATH"] = ffmpeg_dir + os.pathsep + env["PATH"]
 
-    with open(PROXY_FILE, 'r') as f:
-        proxy = f"http://{f.read().strip()}"
+    with open(paths.PROXY, 'r') as f:
+        proxy = f.read().strip()
     log.debug(f'get proxy: {proxy}')
+
     # Получаем метаданные видео (название, автор и т.д.)
     info_proc = subprocess.run(
-        [sys.executable, "-m", "yt_dlp", "--proxy", proxy, "-j", url],
+        [sys.executable, "-m", "yt_dlp", "--proxy", f"http://{proxy}", "-j", url],
         capture_output=True,
         text=True,
         env=env
     )
+
     if info_proc.returncode != 0:
         log.error(f"[yt-dlp] Не удалось получить метаданные:\n{info_proc.stderr.strip()}")
         raise RuntimeError("Ошибка получения метаинформации.")
 
     info = json.loads(info_proc.stdout)
-    title = sanitize_filename(info.get("title", "unknown_video"))
+    file_name = info.get('id', uuid.uuid4().hex)
+    name = info.get("title", "unknown_video")
     author = info.get("uploader") or info.get("channel") or "unknown"
-    base_output = OUTPUT_DIR / title
+    duration = info.get('duration', 0)
+
+    image_path = paths.SERVICE_DATA / 'default.jpg'
+    image_url = info.get('thumbnail')
+    if image_url:
+        image_response = requests.get(image_url)
+        if image_response.status_code == 200:
+            image_path = paths.TEMP / f'{file_name}.{ext}'
+            with open(image_path, "wb") as f:
+                f.write(image_response.content)
+        else:
+            log.error(f"{image_response.status_code} image download:\n{image_response.content}")
+
+    base_output = paths.TEMP / file_name
 
     # Формируем команду загрузки
     output_template = f"{base_output}.%(ext)s"
     cmd = [
         sys.executable, "-m", "yt_dlp",
-        "--proxy", proxy,
+        "--proxy", f"http://{proxy}",
         "--no-playlist",
         "-o", output_template,
         "--quiet",
@@ -97,20 +97,18 @@ def download_youtube_video(url: str, mode: str = "video", verbose: bool = False)
     cmd.append(url)
 
     # Выполняем загрузку
-    if verbose:
-        log.debug(f"[yt-dlp] run: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True, env=env)
-    else:
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, env=env)
+    log.debug(f"[yt-dlp] run: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True, env=env)
 
-    ext = "mp4" if mode == "video" else "mp3"
+
     final_path = base_output.with_suffix(f".{ext}").resolve()
 
     log.info(f"Saved to: {final_path}")
-    return title, author, str(final_path)
+    return ParsingResult(name=name, author=author, duration=duration, image=image_path, file_path=final_path)
 
 
 if __name__ == "__main__":
     video_url = 'https://www.youtube.com/watch?v=ZDmUSt4gt-g'
-    title, author, path = download_youtube_video(video_url, mode="audio", verbose=True)
-    print(f"Title: {title}\nAuthor: {author}\nSaved to: {path}")
+    p = download_youtube_video(video_url, mode="audio")
+    print(f"Title: {p.name}\nAuthor: {p.author}\nSaved to: {p.file_path}")
+

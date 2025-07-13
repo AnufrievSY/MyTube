@@ -9,6 +9,13 @@ from typing import Optional, Union
 # Настройки
 # ---------------------------------------------
 
+# Уровни логирования
+DEBUG = 10
+INFO = 20
+WARNING = 30
+ERROR = 40
+CRITICAL = 50
+
 # Вычисляем корень проекта (поднимаемся на уровень выше текущего файла)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 

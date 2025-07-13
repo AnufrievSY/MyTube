@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
 from dotenv import load_dotenv
-from src import scraping
+from app.services.scraping import download_youtube_video
 
 load_dotenv()
 
@@ -18,20 +18,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработка сообщений с ссылками
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
-    title, author, file_path = scraping.download_youtube_video(url=link, mode='audio', verbose=True)
+    r = download_youtube_video(url=link, mode='audio')
     from PIL import Image
 
-    img_path = r"C:\Projects\MyTube\temp\1664208668_new_preview_evropeyskaya-koshka-dikiy-kot-min.jpg"
+    img_path = r.image
     img = Image.open(img_path)
     img.thumbnail((300, 300))
     img.save(img_path, format="JPEG", quality=85)  # Уменьшаем до нужного размера
 
-    if os.path.exists(file_path):
+    if os.path.exists(r.file_path):
         await update.message.reply_audio(
-            audio=open(file_path, 'rb'),
-            caption=title,
-            filename=author,
-            duration=215,
+            audio=open(r.file_path, 'rb'),
+            caption=r.name,
+            filename=r.author,
+            duration=r.duration,
             thumbnail=open(img_path, "rb")  # Обложка
         )
     else:
@@ -47,6 +47,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-
-
     main()

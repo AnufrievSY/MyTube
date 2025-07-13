@@ -3,3 +3,4 @@
 /common/ffmpeg-7.1.1-essentials_build
 /temp
 .env
+/app/services/data
